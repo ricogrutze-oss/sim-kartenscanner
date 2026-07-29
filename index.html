@@ -377,6 +377,27 @@ function playBeep(){
 }
 
 // ---------- Table ----------
+const TABLE_STORAGE_KEY = 'nummernscanner_rows_v1';
+
+function saveTableToStorage(){
+  try{
+    const rows = [...tbody.querySelectorAll('tr')].map(tr => {
+      const inputs = tr.querySelectorAll('input');
+      return [inputs[0].value, inputs[1].value, inputs[2].value];
+    });
+    localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(rows));
+  }catch(e){}
+}
+
+function loadTableFromStorage(){
+  try{
+    const raw = localStorage.getItem(TABLE_STORAGE_KEY);
+    if (!raw) return;
+    const rows = JSON.parse(raw);
+    rows.forEach(r => addRow(r[0] || '', r[1] || '', r[2] || ''));
+  }catch(e){}
+}
+
 function addRow(val1, val2, val3){
   const tr = document.createElement('tr');
   tr.innerHTML = `
@@ -386,16 +407,26 @@ function addRow(val1, val2, val3){
     <td><input type="text" list="ausbaugrundList" placeholder="Grund…" value="${escapeHtml(val3)}"></td>
     <td class="act"><button title="Löschen">✕</button></td>
   `;
-  tr.querySelector('button').addEventListener('click', () => { tr.remove(); reindex(); });
+  tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', saveTableToStorage));
+  tr.querySelector('button').addEventListener('click', () => { tr.remove(); reindex(); saveTableToStorage(); });
   tbody.appendChild(tr);
   reindex();
+  saveTableToStorage();
   return tr;
 }
 function reindex(){ [...tbody.children].forEach((tr,i) => tr.querySelector('.idx').textContent = i+1); }
 function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
 document.getElementById('addRowBtn').addEventListener('click', () => addRow('','',''));
-document.getElementById('clearAllBtn').addEventListener('click', () => { tbody.innerHTML = ''; lastSaved = null; });
+document.getElementById('clearAllBtn').addEventListener('click', () => {
+  if (!confirm('Tabelle wirklich vollständig löschen? Das kann nicht rückgängig gemacht werden.')) return;
+  tbody.innerHTML = '';
+  lastSaved = null;
+  saveTableToStorage();
+});
+
+loadTableFromStorage();
+
 
 document.getElementById('exportCsvBtn').addEventListener('click', () => {
   const rows = [...tbody.querySelectorAll('tr')].map(tr => {
