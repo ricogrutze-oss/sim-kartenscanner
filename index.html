@@ -7,6 +7,7 @@
 <title>Nummern-Scanner</title>
 <link rel="manifest" href="manifest.json">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/tesseract.js/5.0.4/tesseract.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
   :root{
     --bg:#0f1115; --panel:#171a21; --panel2:#1e222b; --border:#2a2f3a;
@@ -83,7 +84,7 @@
     <div class="placeholder" id="placeholder">Noch keine Kamera aktiv</div>
   </div>
   <div class="hint">
-    Rotes Feld = <b>untere</b> Markierung → Spalte 1. Teal Feld = <b>obere</b> Markierung → Spalte 2.
+    Rotes Feld = <b>IP-Adresse</b> (untere Markierung). Teal Feld = <b>Telefonnummer</b> (obere Markierung).
     Rahmen per Ziehen positionieren, am Punkt in der Ecke Größe anpassen. Die Position wird gespeichert.
   </div>
   <div class="btnrow">
@@ -100,12 +101,16 @@
     <h2 style="font-size:1rem;margin:0;">Ergebnis-Tabelle</h2>
     <button id="addRowBtn">+ leere Zeile</button>
   </div>
+  <datalist id="ausbaugrundList">
+    <option value="GPS Ausbau">
+    <option value="Defekt">
+  </datalist>
   <table id="resultTable">
-    <thead><tr><th class="idx">#</th><th>Spalte 1 (unten)</th><th>Spalte 2 (oben)</th><th></th></tr></thead>
+    <thead><tr><th class="idx">#</th><th>IP-Adresse</th><th>Telefonnummer</th><th>Ausbaugrund</th><th></th></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
   <div class="btnrow">
-    <button class="primary" id="exportCsvBtn">⬇️ CSV exportieren</button>
+    <button class="primary" id="exportCsvBtn">⬇️ Excel exportieren</button>
     <button id="copyBtn">📋 Alles kopieren</button>
     <button class="danger" id="clearAllBtn">Tabelle leeren</button>
   </div>
@@ -209,7 +214,7 @@ function buildZoneEls(){
     applyZoneStyle(div, z);
     const tag = document.createElement('div');
     tag.className = 'tag';
-    tag.textContent = key === 'lower' ? 'unten → Spalte 1' : 'oben → Spalte 2';
+    tag.textContent = key === 'lower' ? 'IP-Adresse' : 'Telefonnummer';
     div.appendChild(tag);
     const handle = document.createElement('div');
     handle.className = 'handle';
@@ -347,7 +352,7 @@ async function recognizeZone(worker, fullCanvas, z){
 
 function saveEntry(lowerVal, upperVal){
   lastSaved = { lower: lowerVal, upper: upperVal };
-  addRow(lowerVal, upperVal);
+  addRow(lowerVal, upperVal, '');
   cooldownUntil = Date.now() + 2500;
   stability = { lower: { last: '', count: 0 }, upper: { last: '', count: 0 } };
   statusEl.className = 'status saved';
@@ -372,12 +377,13 @@ function playBeep(){
 }
 
 // ---------- Table ----------
-function addRow(val1, val2){
+function addRow(val1, val2, val3){
   const tr = document.createElement('tr');
   tr.innerHTML = `
     <td class="idx"></td>
     <td><input type="text" value="${escapeHtml(val1)}"></td>
     <td><input type="text" value="${escapeHtml(val2)}"></td>
+    <td><input type="text" list="ausbaugrundList" placeholder="Grund…" value="${escapeHtml(val3)}"></td>
     <td class="act"><button title="Löschen">✕</button></td>
   `;
   tr.querySelector('button').addEventListener('click', () => { tr.remove(); reindex(); });
@@ -388,28 +394,26 @@ function addRow(val1, val2){
 function reindex(){ [...tbody.children].forEach((tr,i) => tr.querySelector('.idx').textContent = i+1); }
 function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-document.getElementById('addRowBtn').addEventListener('click', () => addRow('',''));
+document.getElementById('addRowBtn').addEventListener('click', () => addRow('','',''));
 document.getElementById('clearAllBtn').addEventListener('click', () => { tbody.innerHTML = ''; lastSaved = null; });
 
 document.getElementById('exportCsvBtn').addEventListener('click', () => {
   const rows = [...tbody.querySelectorAll('tr')].map(tr => {
     const inputs = tr.querySelectorAll('input');
-    return [inputs[0].value, inputs[1].value];
+    return [inputs[0].value, inputs[1].value, inputs[2].value];
   });
-  const csv = rows.map(r => r.map(v => `"${v.replace(/"/g,'""')}"`).join(',')).join('\n');
-  const blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = 'nummern_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.csv';
-  a.click();
-  URL.revokeObjectURL(url);
+  const sheetData = [['IP-Adresse', 'Telefonnummer', 'Ausbaugrund'], ...rows];
+  const ws = XLSX.utils.aoa_to_sheet(sheetData);
+  ws['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 20 }];
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Nummern');
+  XLSX.writeFile(wb, 'nummern_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.xlsx');
 });
 
 document.getElementById('copyBtn').addEventListener('click', () => {
   const rows = [...tbody.querySelectorAll('tr')].map(tr => {
     const inputs = tr.querySelectorAll('input');
-    return inputs[0].value + '\t' + inputs[1].value;
+    return inputs[0].value + '\t' + inputs[1].value + '\t' + inputs[2].value;
   });
   navigator.clipboard.writeText(rows.join('\n')).then(() => { statusEl.textContent = 'In Zwischenablage kopiert.'; });
 });
