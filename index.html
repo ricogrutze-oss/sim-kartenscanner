@@ -59,11 +59,11 @@
   .hint{ font-size:0.8rem; color:var(--muted); margin-top:8px; line-height:1.4; }
   .status{ font-size:0.9rem; color:var(--accent); min-height:1.3em; margin-top:8px; font-family:ui-monospace,Menlo,Consolas,monospace;}
   .status.saved{ color:var(--good); font-weight:700; }
-  table{ width:100%; border-collapse:collapse; margin-top:6px;}
+  table{ width:100%; min-width:620px; border-collapse:collapse; margin-top:6px;}
   th,td{ padding:6px 4px; border-bottom:1px solid var(--border); font-size:0.9rem;}
   th{ text-align:left; color:var(--muted); font-weight:500; font-size:0.75rem;}
   td.idx{ color:var(--muted); width:22px; }
-  td input{
+  td input, td select{
     width:100%; background:var(--panel2); border:1px solid var(--border); color:var(--text);
     padding:7px 8px; border-radius:6px; font-family:ui-monospace,Menlo,Consolas,monospace; font-size:0.95rem;
   }
@@ -84,7 +84,7 @@
     <div class="placeholder" id="placeholder">Noch keine Kamera aktiv</div>
   </div>
   <div class="hint">
-    Rotes Feld = <b>IP-Adresse</b> (untere Markierung). Teal Feld = <b>Telefonnummer</b> (obere Markierung).
+    Rotes Feld = <b>SIM-Karten-Nr</b> (untere Markierung). Teal Feld = <b>Rufnummer</b> (obere Markierung).
     Rahmen per Ziehen positionieren, am Punkt in der Ecke Größe anpassen. Die Position wird gespeichert.
   </div>
   <div class="btnrow">
@@ -97,20 +97,38 @@
 </div>
 
 <div class="card">
+  <h2 style="font-size:1rem;margin:0 0 8px 0;">Absender-Daten</h2>
+  <div class="hint" style="margin-top:0;margin-bottom:8px;">Einmal ausfüllen — wird automatisch in jede Export-Zeile übernommen.</div>
+  <div class="btnrow" style="margin-top:0;">
+    <input type="text" id="absKid" placeholder="Absender KID" style="flex:1; min-width:110px; background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:0.9rem;">
+    <input type="text" id="absName" placeholder="Absender Name" style="flex:1; min-width:140px; background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:0.9rem;">
+    <input type="text" id="absOE" placeholder="Absender OE" style="flex:1; min-width:140px; background:var(--panel2); border:1px solid var(--border); color:var(--text); padding:9px 10px; border-radius:8px; font-size:0.9rem;">
+  </div>
+</div>
+
+<div class="card">
   <div class="row">
     <h2 style="font-size:1rem;margin:0;">Ergebnis-Tabelle</h2>
     <button id="addRowBtn">+ leere Zeile</button>
   </div>
   <datalist id="ausbaugrundList">
-    <option value="GPS Ausbau">
-    <option value="Defekt">
+    <option value="kündigen">
+    <option value="Kartenverlust">
+    <option value="nicht mehr auffindbar">
+    <option value="nicht mehr benötigt">
+    <option value="Rückbau">
+    <option value="Vodafone Rückbau">
+    <option value="CSD-Ablösung">
   </datalist>
+  <div style="overflow-x:auto;">
   <table id="resultTable">
-    <thead><tr><th class="idx">#</th><th>IP-Adresse</th><th>Telefonnummer</th><th>Ausbaugrund</th><th></th></tr></thead>
+    <thead><tr><th class="idx">#</th><th>SIM-Karten-Nr</th><th>Rufnummer</th><th>Provider</th><th>Rückgabegrund</th><th></th></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
+  </div>
   <div class="btnrow">
     <button class="primary" id="exportCsvBtn">⬇️ Excel exportieren</button>
+    <button class="primary" id="mailBtn">📧 Mail senden</button>
     <button id="copyBtn">📋 Alles kopieren</button>
     <button class="danger" id="clearAllBtn">Tabelle leeren</button>
   </div>
@@ -214,7 +232,7 @@ function buildZoneEls(){
     applyZoneStyle(div, z);
     const tag = document.createElement('div');
     tag.className = 'tag';
-    tag.textContent = key === 'lower' ? 'IP-Adresse' : 'Telefonnummer';
+    tag.textContent = key === 'lower' ? 'SIM-Karten-Nr' : 'Rufnummer';
     div.appendChild(tag);
     const handle = document.createElement('div');
     handle.className = 'handle';
@@ -352,7 +370,7 @@ async function recognizeZone(worker, fullCanvas, z){
 
 function saveEntry(lowerVal, upperVal){
   lastSaved = { lower: lowerVal, upper: upperVal };
-  addRow(lowerVal, upperVal, '');
+  addRow(lowerVal, upperVal, '', '');
   cooldownUntil = Date.now() + 2500;
   stability = { lower: { last: '', count: 0 }, upper: { last: '', count: 0 } };
   statusEl.className = 'status saved';
@@ -376,14 +394,41 @@ function playBeep(){
   }catch(e){}
 }
 
+// ---------- Absender-Daten (persist across sessions) ----------
+const ABSENDER_STORAGE_KEY = 'nummernscanner_absender_v1';
+const absKidEl = document.getElementById('absKid');
+const absNameEl = document.getElementById('absName');
+const absOEEl = document.getElementById('absOE');
+
+function loadAbsender(){
+  try{
+    const raw = localStorage.getItem(ABSENDER_STORAGE_KEY);
+    if (!raw) return;
+    const a = JSON.parse(raw);
+    absKidEl.value = a.kid || '';
+    absNameEl.value = a.name || '';
+    absOEEl.value = a.oe || '';
+  }catch(e){}
+}
+function saveAbsender(){
+  try{
+    localStorage.setItem(ABSENDER_STORAGE_KEY, JSON.stringify({
+      kid: absKidEl.value, name: absNameEl.value, oe: absOEEl.value
+    }));
+  }catch(e){}
+}
+[absKidEl, absNameEl, absOEEl].forEach(el => el.addEventListener('input', saveAbsender));
+loadAbsender();
+
 // ---------- Table ----------
-const TABLE_STORAGE_KEY = 'nummernscanner_rows_v1';
+const TABLE_STORAGE_KEY = 'nummernscanner_rows_v2';
+const PROVIDERS = ['Telekom Deutschland / D1', 'T-Mobile Austria', 'Vodafone / D2', 'Telefonica / O2', 'Telefonica / E-Plus', 'unbekannt'];
 
 function saveTableToStorage(){
   try{
     const rows = [...tbody.querySelectorAll('tr')].map(tr => {
-      const inputs = tr.querySelectorAll('input');
-      return [inputs[0].value, inputs[1].value, inputs[2].value];
+      const f = tr.querySelectorAll('.rowfield');
+      return [f[0].value, f[1].value, f[2].value, f[3].value];
     });
     localStorage.setItem(TABLE_STORAGE_KEY, JSON.stringify(rows));
   }catch(e){}
@@ -394,20 +439,27 @@ function loadTableFromStorage(){
     const raw = localStorage.getItem(TABLE_STORAGE_KEY);
     if (!raw) return;
     const rows = JSON.parse(raw);
-    rows.forEach(r => addRow(r[0] || '', r[1] || '', r[2] || ''));
+    rows.forEach(r => addRow(r[0] || '', r[1] || '', r[2] || '', r[3] || ''));
   }catch(e){}
 }
 
-function addRow(val1, val2, val3){
+function addRow(val1, val2, provider, reason){
   const tr = document.createElement('tr');
+  const providerOptions = ['<option value="">– wählen –</option>']
+    .concat(PROVIDERS.map(p => `<option${p === provider ? ' selected' : ''}>${escapeHtml(p)}</option>`))
+    .join('');
   tr.innerHTML = `
     <td class="idx"></td>
-    <td><input type="text" value="${escapeHtml(val1)}"></td>
-    <td><input type="text" value="${escapeHtml(val2)}"></td>
-    <td><input type="text" list="ausbaugrundList" placeholder="Grund…" value="${escapeHtml(val3)}"></td>
+    <td><input class="rowfield" type="text" value="${escapeHtml(val1)}"></td>
+    <td><input class="rowfield" type="text" value="${escapeHtml(val2)}"></td>
+    <td><select class="rowfield">${providerOptions}</select></td>
+    <td><input class="rowfield" type="text" list="ausbaugrundList" placeholder="Grund…" value="${escapeHtml(reason)}"></td>
     <td class="act"><button title="Löschen">✕</button></td>
   `;
-  tr.querySelectorAll('input').forEach(inp => inp.addEventListener('input', saveTableToStorage));
+  tr.querySelectorAll('.rowfield').forEach(el => {
+    el.addEventListener('input', saveTableToStorage);
+    el.addEventListener('change', saveTableToStorage);
+  });
   tr.querySelector('button').addEventListener('click', () => { tr.remove(); reindex(); saveTableToStorage(); });
   tbody.appendChild(tr);
   reindex();
@@ -417,7 +469,7 @@ function addRow(val1, val2, val3){
 function reindex(){ [...tbody.children].forEach((tr,i) => tr.querySelector('.idx').textContent = i+1); }
 function escapeHtml(s){ return (s||'').replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
 
-document.getElementById('addRowBtn').addEventListener('click', () => addRow('','',''));
+document.getElementById('addRowBtn').addEventListener('click', () => addRow('','','',''));
 document.getElementById('clearAllBtn').addEventListener('click', () => {
   if (!confirm('Tabelle wirklich vollständig löschen? Das kann nicht rückgängig gemacht werden.')) return;
   tbody.innerHTML = '';
@@ -428,24 +480,74 @@ document.getElementById('clearAllBtn').addEventListener('click', () => {
 loadTableFromStorage();
 
 
-document.getElementById('exportCsvBtn').addEventListener('click', () => {
-  const rows = [...tbody.querySelectorAll('tr')].map(tr => {
-    const inputs = tr.querySelectorAll('input');
-    return [inputs[0].value, inputs[1].value, inputs[2].value];
+function buildExportRows(){
+  const kid = absKidEl.value, name = absNameEl.value, oe = absOEEl.value;
+  return [...tbody.querySelectorAll('tr')].map(tr => {
+    const f = tr.querySelectorAll('.rowfield');
+    // f[0]=SIM-Karten-Nr, f[1]=Rufnummer, f[2]=Provider, f[3]=Rückgabegrund
+    return [kid, name, oe, f[1].value, f[0].value, f[2].value, f[3].value];
   });
-  const sheetData = [['IP-Adresse', 'Telefonnummer', 'Ausbaugrund'], ...rows];
+}
+
+function generateExcelFile(filename){
+  const rows = buildExportRows();
+  const sheetData = [['Absender KID', 'Absender Name', 'Absender OE', 'Rufnummer', 'SIM-Karten-Nr', 'Provider', 'Rückgabegrund'], ...rows];
   const ws = XLSX.utils.aoa_to_sheet(sheetData);
-  ws['!cols'] = [{ wch: 20 }, { wch: 20 }, { wch: 20 }];
+  ws['!cols'] = [{ wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 18 }, { wch: 22 }, { wch: 22 }, { wch: 20 }];
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Nummern');
-  XLSX.writeFile(wb, 'nummern_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.xlsx');
+  filename = filename || ('SIM-Karten-Rueckgabe_' + new Date().toISOString().slice(0,19).replace(/[:T]/g,'-') + '.xlsx');
+  XLSX.writeFile(wb, filename);
+  return filename;
+}
+
+// Excel's internal date serial number (1900 date system, incl. the classic 1900-leap-year quirk),
+// matching what Excel itself produces when TODAY() is concatenated with & (no date formatting applied).
+function toExcelSerial(date){
+  const excelEpoch = Date.UTC(1899, 11, 30);
+  const d = Date.UTC(date.getFullYear(), date.getMonth(), date.getDate());
+  return Math.round((d - excelEpoch) / 86400000);
+}
+
+document.getElementById('exportCsvBtn').addEventListener('click', () => {
+  generateExcelFile();
+});
+
+document.getElementById('mailBtn').addEventListener('click', () => {
+  const kid = absKidEl.value || '';
+  const name = absNameEl.value || '';
+  const oe = absOEEl.value || '';
+  const serial = toExcelSerial(new Date());
+  const chargenId = `${kid}-${oe}-${serial}`;
+
+  const filename = generateExcelFile(`Rückgabe-Chargen-ID-${chargenId}.xlsx`);
+
+  const subject = `ZFA M2M SIM-Daten Rückgabe - Chargen-ID: ${chargenId}`;
+  const body =
+`Hallo ZFA BIT Metering Serviceteam,
+
+die SIM-Kartenverträge für die, in der anliegenden Datei enthaltenen, SIM-Kartendaten können zum nächst möglichen Zeitpunkt gekündigt werden.
+
+Vom Absender dieser E-Mail wird garantiert, dass die aufgeführten SIM-Karten unbrauchbar gemacht wurden.
+
+Freundliche Grüße
+
+${name}
+
+
+Diese E-Mail wurde als Bestandteil des M2M-SIM-Kartenrückgabeprozesses automatisiert erstellt.
+Bitte prüfen Sie die Angaben vor dem Versenden.`;
+
+  const mailtoUrl = `mailto:SIM-Karten-Rueckgabe@gw.sharepoint.eon.com?cc=ZFA@eon.com&subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+
+  statusEl.className = 'status';
+  statusEl.textContent = `📎 "${filename}" wurde heruntergeladen. E-Mail-App öffnet sich — bitte die Datei manuell anhängen, prüfen und senden.`;
+
+  setTimeout(() => { window.location.href = mailtoUrl; }, 500);
 });
 
 document.getElementById('copyBtn').addEventListener('click', () => {
-  const rows = [...tbody.querySelectorAll('tr')].map(tr => {
-    const inputs = tr.querySelectorAll('input');
-    return inputs[0].value + '\t' + inputs[1].value + '\t' + inputs[2].value;
-  });
+  const rows = buildExportRows().map(r => r.join('\t'));
   navigator.clipboard.writeText(rows.join('\n')).then(() => { statusEl.textContent = 'In Zwischenablage kopiert.'; });
 });
 
