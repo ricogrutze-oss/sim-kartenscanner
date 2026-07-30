@@ -63,9 +63,11 @@
   .hint{ font-size:0.8rem; color:var(--muted); margin-top:8px; line-height:1.4; }
   .status{ font-size:0.9rem; color:var(--accent); min-height:1.3em; margin-top:8px; font-family:ui-monospace,Menlo,Consolas,monospace;}
   .status.saved{ color:var(--good); font-weight:700; }
-  table{ width:100%; min-width:620px; border-collapse:collapse; margin-top:6px; background:#cfe7e5; border:1px solid #9fc4c1;}
-  th,td{ padding:6px 6px; border:1px solid #a9cac7; font-size:0.9rem;}
-  th{ text-align:left; background:#d7dba0; color:#2b2e1f; font-weight:700; font-size:0.75rem;}
+  table{ width:100%; min-width:620px; border-collapse:collapse; margin-top:6px; background:#cfe7e5; border:1px solid #9fc4c1; table-layout:fixed;}
+  th,td{ padding:6px 6px; border:1px solid #a9cac7; font-size:0.9rem; overflow:hidden;}
+  th{ text-align:left; background:#d7dba0; color:#2b2e1f; font-weight:700; font-size:0.75rem; position:relative; white-space:nowrap;}
+  .colResizeHandle{ position:absolute; top:0; right:-5px; width:10px; height:100%; cursor:col-resize; touch-action:none; z-index:4; }
+  .colResizeHandle::after{ content:''; position:absolute; right:4px; top:0; width:2px; height:100%; background:rgba(43,46,31,0.35); }
   td.idx{ color:#2b2e1f; width:22px; text-align:center; background:#e9ecc9; font-weight:700; }
   td input, td select{
     width:100%; background:#ffffff; border:1px solid #9fc4c1; color:#12312e;
@@ -81,17 +83,11 @@
 <body>
 
 <h1>📷 Nummern-Scanner</h1>
-<p class="sub">Kamera über den Aufkleber halten. Jede Zahl wird einzeln gespeichert, sobald sie zweimal stabil erkannt wurde — SIM-Karten-Nr und Rufnummer müssen nicht gleichzeitig scharf sein.</p>
 
 <div class="card">
   <div id="stage">
     <div class="placeholder" id="placeholder">Noch keine Kamera aktiv</div>
     <div id="flashOverlay"></div>
-  </div>
-  <div class="hint">
-    Rotes Feld = <b>SIM-Karten-Nr</b> (untere Markierung). Teal Feld = <b>Rufnummer</b> (obere Markierung).
-    Rahmen per Ziehen positionieren, am Punkt in der Ecke Größe anpassen. Die Position wird gespeichert.
-    Sobald eine der beiden Zahlen erkannt ist, wird sie sofort in die aktuelle Zeile eingetragen (kurzer Piep, Kamerabild blitzt <b>grün</b>) — erst wenn beide Felder einer Zeile gefüllt sind, gilt die Zeile als komplett (langer Piep + Pause, Kamerabild blitzt <b>orange</b>).
   </div>
   <div class="btnrow">
     <button class="primary" id="startBtn">📷 Kamera starten</button>
@@ -128,6 +124,9 @@
   </datalist>
   <div style="overflow-x:auto;">
   <table id="resultTable">
+    <colgroup>
+      <col><col><col><col><col><col>
+    </colgroup>
     <thead><tr><th class="idx">#</th><th>SIM-Karten-Nr</th><th>Rufnummer</th><th>Provider</th><th>Rückgabegrund</th><th></th></tr></thead>
     <tbody id="tbody"></tbody>
   </table>
@@ -140,7 +139,7 @@
   </div>
 </div>
 
-<footer>Läuft als PWA offline weiter, sobald die Seite einmal mit Internet geladen wurde. Keine Fotos oder Zahlen verlassen das Gerät.</footer>
+<footer>Läuft offline. Keine Daten verlassen das Gerät.</footer>
 
 <script>
 const stage = document.getElementById('stage');
@@ -529,6 +528,56 @@ document.getElementById('clearAllBtn').addEventListener('click', () => {
 });
 
 loadTableFromStorage();
+
+// ---------- Resizable table columns ----------
+const COLWIDTH_KEY = 'nummernscanner_colwidths_v1';
+const DEFAULT_COLWIDTHS = [32, 160, 150, 190, 170, 40];
+
+function initColumnResize(){
+  const table = document.getElementById('resultTable');
+  const cols = table.querySelectorAll('colgroup col');
+  const saved = (() => { try{ return JSON.parse(localStorage.getItem(COLWIDTH_KEY)); }catch(e){ return null; } })();
+  const widths = (saved && saved.length === cols.length) ? saved : DEFAULT_COLWIDTHS;
+  cols.forEach((col, i) => { col.style.width = (widths[i] || DEFAULT_COLWIDTHS[i]) + 'px'; });
+
+  const ths = table.querySelectorAll('thead th');
+  ths.forEach((th, i) => {
+    if (i === ths.length - 1) return; // letzte Spalte (Löschen) braucht keinen Griff
+    const handle = document.createElement('div');
+    handle.className = 'colResizeHandle';
+    th.appendChild(handle);
+
+    let startX = 0, startWidth = 0;
+    function pos(e){ return (e.touches ? e.touches[0].clientX : e.clientX); }
+    function onDown(e){
+      e.preventDefault(); e.stopPropagation();
+      startX = pos(e);
+      startWidth = cols[i].offsetWidth;
+      window.addEventListener('mousemove', onMove);
+      window.addEventListener('touchmove', onMove, {passive:false});
+      window.addEventListener('mouseup', onUp);
+      window.addEventListener('touchend', onUp);
+    }
+    function onMove(e){
+      e.preventDefault();
+      const newWidth = Math.max(36, startWidth + (pos(e) - startX));
+      cols[i].style.width = newWidth + 'px';
+    }
+    function onUp(){
+      window.removeEventListener('mousemove', onMove);
+      window.removeEventListener('touchmove', onMove);
+      window.removeEventListener('mouseup', onUp);
+      window.removeEventListener('touchend', onUp);
+      try{
+        const w = [...cols].map(c => parseInt(c.style.width, 10) || 0);
+        localStorage.setItem(COLWIDTH_KEY, JSON.stringify(w));
+      }catch(e){}
+    }
+    handle.addEventListener('mousedown', onDown);
+    handle.addEventListener('touchstart', onDown, {passive:false});
+  });
+}
+initColumnResize();
 
 function buildExportRows(){
   const kid = absKidEl.value, name = absNameEl.value, oe = absOEEl.value;
