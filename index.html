@@ -39,6 +39,10 @@
   }
   #stage video{ width:100%; display:block; }
   #stage .placeholder{ color:var(--muted); font-size:0.85rem; padding:40px 10px; text-align:center;}
+  #flashOverlay{
+    position:absolute; inset:0; z-index:10; pointer-events:none;
+    opacity:0; transition: opacity .12s ease-out;
+  }
   .zone{
     position:absolute; border:2px solid; border-radius:4px; box-sizing:border-box;
     transition: border-color .15s, background-color .15s;
@@ -82,11 +86,12 @@
 <div class="card">
   <div id="stage">
     <div class="placeholder" id="placeholder">Noch keine Kamera aktiv</div>
+    <div id="flashOverlay"></div>
   </div>
   <div class="hint">
     Rotes Feld = <b>SIM-Karten-Nr</b> (untere Markierung). Teal Feld = <b>Rufnummer</b> (obere Markierung).
     Rahmen per Ziehen positionieren, am Punkt in der Ecke Größe anpassen. Die Position wird gespeichert.
-    Sobald eine der beiden Zahlen erkannt ist, wird sie sofort in die aktuelle Zeile eingetragen (kurzer Piep) — erst wenn beide Felder einer Zeile gefüllt sind, gilt die Zeile als komplett (langer Piep + Pause).
+    Sobald eine der beiden Zahlen erkannt ist, wird sie sofort in die aktuelle Zeile eingetragen (kurzer Piep, Kamerabild blitzt <b>grün</b>) — erst wenn beide Felder einer Zeile gefüllt sind, gilt die Zeile als komplett (langer Piep + Pause, Kamerabild blitzt <b>orange</b>).
   </div>
   <div class="btnrow">
     <button class="primary" id="startBtn">📷 Kamera starten</button>
@@ -400,6 +405,7 @@ function handleFieldLocked(key, value){
     statusEl.textContent = `✅ Zeile komplett: ${pendingRow.lowerVal}  /  ${pendingRow.upperVal}`;
     if (soundToggle.checked) playBeep(880, 0.22);
     if (vibrateToggle.checked && navigator.vibrate) navigator.vibrate(200);
+    flashStage('rgba(251,146,60,0.65)', 500); // orange — Zeile komplett (beide Zahlen)
     cooldownUntil = Date.now() + 2000;
     pendingRow = { lowerVal: null, upperVal: null, rowEl: null };
   } else {
@@ -407,7 +413,18 @@ function handleFieldLocked(key, value){
     statusEl.textContent = key === 'lower'
       ? `✅ SIM-Karten-Nr erfasst: ${value} — Rufnummer fehlt noch`
       : `✅ Rufnummer erfasst: ${value} — SIM-Karten-Nr fehlt noch`;
+    flashStage('rgba(74,222,128,0.55)', 500); // grün — einzelne Zahl erfolgreich erfasst
   }
+}
+
+let flashTimer = null;
+function flashStage(color, ms){
+  const el = document.getElementById('flashOverlay');
+  if (!el) return;
+  el.style.background = color;
+  el.style.opacity = '0.5';
+  clearTimeout(flashTimer);
+  flashTimer = setTimeout(() => { el.style.opacity = '0'; }, ms);
 }
 
 function playBeep(freq, duration){
